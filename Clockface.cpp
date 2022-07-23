@@ -3,6 +3,8 @@
 
 unsigned long lastMillis = 0;
 
+Pacman *pacman;
+
 
 Clockface::Clockface(Adafruit_GFX* display) {
   _display = display;
@@ -11,30 +13,14 @@ Clockface::Clockface(Adafruit_GFX* display) {
 
 void Clockface::setup(CWDateTime *dateTime) {
   this->_dateTime = dateTime;
+  Locator::getDisplay()->setFont(&hourFont);
   Locator::getDisplay()->fillRect(0, 0, 64, 64, 0x0000);  
   drawMap();
 }
 
 void Clockface::update()
-{ 
-  if (millis() - lastMillis >= 500) { 
-
-    for (int i=0; i<12; i++) {
-      for (int j=0; j<12; j++) {
-        if (_MAP[j][i] == 9) { // 9: pacman
-          if (pacmanState) {
-            Locator::getDisplay()->drawRGBBitmap((i*5)+2,(j*5)+2, _PACMAN_2, 5, 5);
-          } else {
-            Locator::getDisplay()->drawRGBBitmap((i*5)+2,(j*5)+2, _PACMAN_1, 5, 5);
-          }
-          pacmanState = !pacmanState;
-        } 
-      }
-    }
-
-    
-    lastMillis = millis();
-  }
+{
+  pacman->update();  
 }
 
 
@@ -65,9 +51,15 @@ void Clockface::drawMap()
       } else if (_MAP[j][i] == 3) { // 3: special food
         Locator::getDisplay()->fillRect((i*5)+3,(j*5)+3,3,3,0xFBE0);
       } else if (_MAP[j][i] == 9) { // 9: pacman
-        Locator::getDisplay()->drawRGBBitmap((i*5)+2,(j*5)+2, _PACMAN_2, 5, 5);
-        pacmanState = !pacmanState;
+        pacman = new Pacman((i*5)+2,(j*5)+2);
+
+        // Locator::getDisplay()->drawRGBBitmap((i*5)+2,(j*5)+2, _PACMAN_2, 5, 5);
+        // pacmanState = !pacmanState;
       }
     }
   }
+
+  Locator::getDisplay()->setTextColor(0xFE40);
+  Locator::getDisplay()->setCursor(15, 33);
+  Locator::getDisplay()->print("23:45");
 }

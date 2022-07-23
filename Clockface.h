@@ -2,6 +2,10 @@
 
 #include <Arduino.h>
 
+
+#include "hour_font.h"
+
+
 #include <Adafruit_GFX.h>
 #include <Tile.h>
 #include <Locator.h>
@@ -10,7 +14,9 @@
 #include <ImageUtils.h>
 #include <ColorUtil.h>
 #include "IClockface.h"
-#include "assets.h"
+
+//sprites
+#include "pacman.h"
 
 
 class Clockface: public IClockface {
@@ -19,7 +25,9 @@ class Clockface: public IClockface {
     CWDateTime* _dateTime;
     boolean pacmanState = true;
 
-    // 300000900003
+
+
+    // 390000000003
     // 011011110110
     // 000001100000
     // 101111111101
@@ -40,7 +48,7 @@ class Clockface: public IClockface {
     // 9: pacman
 
     const byte _MAP[12][12] = {
-      {3,0,0,0,0,0,9,0,0,0,0,3},
+      {3,9,0,0,0,0,0,0,0,0,0,3},
       {0,1,1,0,1,1,1,1,0,1,1,0},
       {0,0,0,0,0,1,1,0,0,0,0,0},
       {1,0,1,1,1,1,1,1,1,1,0,1},
