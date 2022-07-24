@@ -30,19 +30,14 @@ class Pacman: public Sprite, public EventTask {
       }
     };
 
-    enum State {
-      MOVING,
-      STOPPED
-    };
-
-    Direction _direction = Direction::RIGHT;
+    
 
     int _lastX;
     int _lastY;
 
     const unsigned short* _sprite;
     unsigned long lastMillis = 0;
-    State _state = MOVING;
+    
 
     bool _pacman_anim = true;
 
@@ -51,12 +46,22 @@ class Pacman: public Sprite, public EventTask {
 
     
   public:
+    enum State {
+      MOVING,
+      STOPPED
+    };
     Pacman(int x, int y);
     void init();
     void move(Direction dir);
-    void turn(Direction dir);
+    void turn(Direction dir);    
+    int getX();
+    int getY();
     void update();
     const char* name();
     void execute(EventType event, Sprite* caller);
+    Direction _direction = Direction::RIGHT;
+    State _state = MOVING;
+    const int SPRITE_SIZE = 5;
+
     
 };

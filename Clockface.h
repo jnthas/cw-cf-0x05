@@ -62,6 +62,11 @@ class Clockface: public IClockface {
       {3,0,0,0,0,0,0,0,0,0,0,3}
     };
 
+
+    const byte MAP_BORDER_SIZE = 2;
+    const byte MAP_MIN_POS = 0 + MAP_BORDER_SIZE;
+    const byte MAP_MAX_POS = 64 - MAP_BORDER_SIZE;
+
     void drawMap();
     
   public:

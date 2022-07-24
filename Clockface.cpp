@@ -20,7 +20,45 @@ void Clockface::setup(CWDateTime *dateTime) {
 
 void Clockface::update()
 {
-  pacman->update();  
+
+  if (millis() - lastMillis >= 1000) {
+
+    if (pacman->getX() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::RIGHT ) {
+      pacman->turn(Direction::DOWN);
+    } else if (pacman->getY() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::DOWN) {
+      pacman->turn(Direction::LEFT);
+    } else if (pacman->getX() <= MAP_MIN_POS && pacman->_direction == Direction::LEFT) {
+      pacman->turn(Direction::UP);
+    } else if (pacman->getY() <= MAP_MIN_POS && pacman->_direction == Direction::UP) {
+      pacman->turn(Direction::RIGHT);
+    }
+
+    Serial.print("X=");
+    Serial.print(pacman->getX()-2);
+    Serial.print(" Y=");
+    Serial.println(pacman->getY()-2);
+
+
+
+    if ((pacman->getX()+3) % 5 == 0) {
+      //Serial.print(pacman->getX());
+      Serial.print(" = ");
+      Serial.println(_MAP[(pacman->getY()-2)/5][(pacman->getX()-2)/5]);
+
+
+      // if ((_MAP[pacman->getX()+3)/5][(pacman->getY()+3)/5] == 1)
+      //   pacman->_state = Pacman::State::STOPPED;
+        
+      
+      
+    }
+
+
+    pacman->update();  
+    
+    lastMillis = millis();
+  }
+  
 }
 
 

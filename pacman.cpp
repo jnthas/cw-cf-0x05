@@ -41,46 +41,25 @@ void Pacman::move(Direction dir) {
 
 void Pacman::init() {
   //Locator::getEventBus()->subscribe(this);
-  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], 5, 5);
+  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], SPRITE_SIZE, SPRITE_SIZE);
 }
-
-
-int count_pac = 0;
 
 void Pacman::update() { 
   
-  if (millis() - lastMillis >= 250) {
-    if (_state == MOVING) {
-      Locator::getDisplay()->fillRect(_x,_y, 5, 5, 0);
-      this->move(_direction);
-    }
-
-    _pacman_anim = !_pacman_anim;
-    Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], 5, 5);
-   
-   
-      
-      if (count_pac == 10)
-        turn(Direction::DOWN);
-      else if (count_pac == 20)
-        turn(Direction::LEFT);
-      else if (count_pac == 30)
-        turn(Direction::UP);
-      else if (count_pac == 40) {
-        turn(Direction::RIGHT);
-        count_pac = 0;
-      }
-      
-      
-    lastMillis = millis();
-    count_pac++;
+  if (_state == MOVING) {
+    Locator::getDisplay()->fillRect(_x,_y, SPRITE_SIZE, SPRITE_SIZE, 0);
+    this->move(_direction);
   }
+
+  _pacman_anim = !_pacman_anim;
+  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], SPRITE_SIZE, SPRITE_SIZE);
+
 }
 
 
 //TODO move to the gfx-engine lib
 void Pacman::rotate() {
-  int n = 5;
+  int n = SPRITE_SIZE;
 
   uint16_t temp0[2][25] = {};  
   memcpy( temp0, _PACMAN, sizeof(temp0) );
@@ -95,7 +74,7 @@ void Pacman::rotate() {
 
 //TODO move to the gfx-engine lib
 void Pacman::flip() {
-  int n = 5;
+  int n = SPRITE_SIZE;
 
   for(int i = 0; i < n; i++) {
     for(int j = 0; j < floor(n/2)+1; j++) {
@@ -111,6 +90,14 @@ void Pacman::execute(EventType event, Sprite* caller) {
     //Serial.println("MARIO - Collision detected");
     _direction = DOWN;
   }
+}
+
+
+int Pacman::getX() {
+  return this->_x;
+}
+int Pacman::getY() {
+  return this->_y;
 }
 
 const char* Pacman::name() {
