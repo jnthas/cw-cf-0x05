@@ -22,23 +22,13 @@ void Clockface::setup(CWDateTime *dateTime) {
 void Clockface::update()
 {
 
-  if (millis() - lastMillis >= 25) {
-
-    // if (pacman->getX() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::RIGHT ) {
-    //   pacman->turn(Direction::DOWN);
-    // } else if (pacman->getY() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::DOWN) {
-    //   pacman->turn(Direction::LEFT);
-    // } else if (pacman->getX() <= MAP_MIN_POS && pacman->_direction == Direction::LEFT) {
-    //   pacman->turn(Direction::UP);
-    // } else if (pacman->getY() <= MAP_MIN_POS && pacman->_direction == Direction::UP) {
-    //   pacman->turn(Direction::RIGHT);
-    // }
+  if (millis() - lastMillis >= 75) {
 
         
-    Serial.print("X=");
-    Serial.print(pacman->getX()-2);
-    Serial.print(" Y=");
-    Serial.println(pacman->getY()-2);
+    // Serial.print("X=");
+    // Serial.print(pacman->getX()-2);
+    // Serial.print(" Y=");
+    // Serial.println(pacman->getY()-2);
 
 
     // X axis
@@ -48,11 +38,19 @@ void Clockface::update()
 
       if (nextBlock() == 1 || nextBlock() == -1) {
         turnRandom();
-      // } else if (nextBlock() == 0 && random(100) % 2 == 0) {
-      //   pacman->turn(Direction::DOWN);
-      // } else if (nextBlock() == 0 && random(100) % 2 == 0) {
-      //   pacman->turn(Direction::DOWN);
+      } else if (nextBlock(Direction::DOWN) == 0 && random(100) % 2 == 0) {
+        pacman->turn(Direction::DOWN);
+      } else if (nextBlock(Direction::UP) == 0 && random(100) % 2 == 0) {
+        pacman->turn(Direction::UP);
       }
+
+
+      if (nextBlock() == 3) {
+        pacman->_state = Pacman::State::INVENCIBLE;
+      }
+
+      
+      
 
 
     
@@ -63,14 +61,19 @@ void Clockface::update()
 
       if (nextBlock() == 1 || nextBlock() == -1) {
         turnRandom();
+      } else if (nextBlock(Direction::LEFT) == 0 && random(100) % 2 == 0) {
+        pacman->turn(Direction::LEFT);
+      } else if (nextBlock(Direction::RIGHT) == 0 && random(100) % 2 == 0) {
+        pacman->turn(Direction::RIGHT);
       }
 
       
+      if (nextBlock() == 3) {
+        pacman->_state = Pacman::State::INVENCIBLE;
+      }
     }
 
-    if (pacman->_state == Pacman::State::MOVING) {
       pacman->update();
-    }
     
     lastMillis = millis();
   }
@@ -94,24 +97,29 @@ void Clockface::turnRandom() {
   Serial.println(pacman->_direction);
 }
 
+
 int Clockface::nextBlock() {
+  return nextBlock(pacman->_direction);
+}
+
+int Clockface::nextBlock(Direction dir) {
 
   int map_block = 0;
 
-  if (pacman->_direction == Direction::RIGHT) {
+  if (dir == Direction::RIGHT) {
     if (pacman->getX()+pacman->SPRITE_SIZE >= MAP_MAX_POS) {
       map_block = -1;
     } else {
       map_block = _MAP[(pacman->getY()-2)/5][((pacman->getX()-2)/5)+1];
     }
     
-  } else if (pacman->_direction == Direction::DOWN) {
+  } else if (dir == Direction::DOWN) {
     if (pacman->getY()+pacman->SPRITE_SIZE >= MAP_MAX_POS) {
       map_block = -1;
     } else {
       map_block = _MAP[((pacman->getY()-2)/5)+1][(pacman->getX()-2)/5];
     }
-  } else if (pacman->_direction == Direction::LEFT) {
+  } else if (dir == Direction::LEFT) {
 
     if ((pacman->getX()-2) <= 0) {
       map_block = -1;      
@@ -119,7 +127,7 @@ int Clockface::nextBlock() {
       map_block = _MAP[(pacman->getY()-2)/5][((pacman->getX()-2)/5)-1];
     }
 
-  } else if (pacman->_direction == Direction::UP) {
+  } else if (dir == Direction::UP) {
     if ((pacman->getY()-2) <= 0) {
       map_block = -1;
     } else {

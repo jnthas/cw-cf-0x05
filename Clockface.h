@@ -48,9 +48,9 @@ class Clockface: public IClockface {
     // 9: pacman
 
     const byte _MAP[12][12] = {
-      {3,0,0,0,0,0,0,0,0,0,0,3},
+      {3,0,0,0,0,0,9,0,0,0,0,3},
       {0,1,1,0,1,1,1,1,0,1,1,0},
-      {0,0,0,0,0,1,1,0,0,0,9,0},
+      {0,0,0,0,0,1,1,0,0,0,0,0},
       {1,0,1,1,1,1,1,1,1,1,0,1},
       {1,0,1,8,8,8,8,8,8,1,0,1},
       {2,0,1,8,8,8,8,8,8,1,0,2},
@@ -68,6 +68,7 @@ class Clockface: public IClockface {
     const byte MAP_MAX_POS = 64 - MAP_BORDER_SIZE;
 
     void drawMap();
+    int nextBlock(Direction dir);
     int nextBlock();
     void turnRandom();
     

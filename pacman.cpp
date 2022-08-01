@@ -46,14 +46,24 @@ void Pacman::init() {
 
 void Pacman::update() { 
   
-  if (_state == MOVING) {
+  if (_state == MOVING || _state == INVENCIBLE) {
     Locator::getDisplay()->fillRect(_x,_y, SPRITE_SIZE, SPRITE_SIZE, 0);
     this->move(_direction);
   }
 
-  _pacman_anim = !_pacman_anim;
+  if (_iteration % 3 == 0)
+    _pacman_anim = !_pacman_anim; 
+
+
+  if (_state == INVENCIBLE && _iteration % 5 == 0) 
+    replaceColor(int(_pacman_anim), 0xFE40, 0xFFFF);
+  else 
+    replaceColor(int(_pacman_anim), 0xFFFF, 0xFE40);
+
+
   Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], SPRITE_SIZE, SPRITE_SIZE);
 
+  _iteration++;
 }
 
 
@@ -92,6 +102,13 @@ void Pacman::execute(EventType event, Sprite* caller) {
   }
 }
 
+void Pacman::replaceColor(byte sprite_index, uint16_t oldcolor, uint16_t newcolor) {
+  for (int i=0; i < SPRITE_SIZE*SPRITE_SIZE; i++) {
+    if (_PACMAN[sprite_index][i] == oldcolor) 
+      _PACMAN[sprite_index][i] = newcolor;
+  }
+
+}
 
 int Pacman::getX() {
   return this->_x;
