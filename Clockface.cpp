@@ -15,50 +15,120 @@ void Clockface::setup(CWDateTime *dateTime) {
   this->_dateTime = dateTime;
   Locator::getDisplay()->setFont(&hourFont);
   Locator::getDisplay()->fillRect(0, 0, 64, 64, 0x0000);  
+  randomSeed(dateTime->getMilliseconds() + millis());
   drawMap();
 }
 
 void Clockface::update()
 {
 
-  if (millis() - lastMillis >= 1000) {
+  if (millis() - lastMillis >= 25) {
 
-    if (pacman->getX() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::RIGHT ) {
-      pacman->turn(Direction::DOWN);
-    } else if (pacman->getY() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::DOWN) {
-      pacman->turn(Direction::LEFT);
-    } else if (pacman->getX() <= MAP_MIN_POS && pacman->_direction == Direction::LEFT) {
-      pacman->turn(Direction::UP);
-    } else if (pacman->getY() <= MAP_MIN_POS && pacman->_direction == Direction::UP) {
-      pacman->turn(Direction::RIGHT);
-    }
+    // if (pacman->getX() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::RIGHT ) {
+    //   pacman->turn(Direction::DOWN);
+    // } else if (pacman->getY() >= MAP_MAX_POS-pacman->SPRITE_SIZE && pacman->_direction == Direction::DOWN) {
+    //   pacman->turn(Direction::LEFT);
+    // } else if (pacman->getX() <= MAP_MIN_POS && pacman->_direction == Direction::LEFT) {
+    //   pacman->turn(Direction::UP);
+    // } else if (pacman->getY() <= MAP_MIN_POS && pacman->_direction == Direction::UP) {
+    //   pacman->turn(Direction::RIGHT);
+    // }
 
+        
     Serial.print("X=");
     Serial.print(pacman->getX()-2);
     Serial.print(" Y=");
     Serial.println(pacman->getY()-2);
 
 
-
-    if ((pacman->getX()+3) % 5 == 0) {
+    // X axis
+    if ((pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT) && (pacman->getX()-2) % 5 == 0) {
       //Serial.print(pacman->getX());
-      Serial.print(" = ");
-      Serial.println(_MAP[(pacman->getY()-2)/5][(pacman->getX()-2)/5]);
+      Serial.print(" Next block: "); Serial.println(nextBlock());
+
+      if (nextBlock() == 1 || nextBlock() == -1) {
+        turnRandom();
+      // } else if (nextBlock() == 0 && random(100) % 2 == 0) {
+      //   pacman->turn(Direction::DOWN);
+      // } else if (nextBlock() == 0 && random(100) % 2 == 0) {
+      //   pacman->turn(Direction::DOWN);
+      }
 
 
-      // if ((_MAP[pacman->getX()+3)/5][(pacman->getY()+3)/5] == 1)
-      //   pacman->_state = Pacman::State::STOPPED;
-        
-      
+    
+    // Y axis
+    } else if ((pacman->_direction == Direction::UP || pacman->_direction == Direction::DOWN) && (pacman->getY()-2) % 5 == 0) {
+      //Serial.print(pacman->getX());
+      Serial.print(" Next block: "); Serial.println(nextBlock());
+
+      if (nextBlock() == 1 || nextBlock() == -1) {
+        turnRandom();
+      }
+
       
     }
 
-
-    pacman->update();  
+    if (pacman->_state == Pacman::State::MOVING) {
+      pacman->update();
+    }
     
     lastMillis = millis();
   }
   
+}
+
+void Clockface::turnRandom() {
+  int dir = random(4);
+  //int dir = 3;
+  //pacman->_state = Pacman::State::TURNING;
+
+  do {
+    pacman->turn(static_cast<Direction>(dir));
+    dir = random(4);
+    //dir++;
+
+    
+  } while (nextBlock() != 0);
+
+  Serial.print("New direction: ");
+  Serial.println(pacman->_direction);
+}
+
+int Clockface::nextBlock() {
+
+  int map_block = 0;
+
+  if (pacman->_direction == Direction::RIGHT) {
+    if (pacman->getX()+pacman->SPRITE_SIZE >= MAP_MAX_POS) {
+      map_block = -1;
+    } else {
+      map_block = _MAP[(pacman->getY()-2)/5][((pacman->getX()-2)/5)+1];
+    }
+    
+  } else if (pacman->_direction == Direction::DOWN) {
+    if (pacman->getY()+pacman->SPRITE_SIZE >= MAP_MAX_POS) {
+      map_block = -1;
+    } else {
+      map_block = _MAP[((pacman->getY()-2)/5)+1][(pacman->getX()-2)/5];
+    }
+  } else if (pacman->_direction == Direction::LEFT) {
+
+    if ((pacman->getX()-2) <= 0) {
+      map_block = -1;      
+    } else {
+      map_block = _MAP[(pacman->getY()-2)/5][((pacman->getX()-2)/5)-1];
+    }
+
+  } else if (pacman->_direction == Direction::UP) {
+    if ((pacman->getY()-2) <= 0) {
+      map_block = -1;
+    } else {
+      map_block = _MAP[((pacman->getY()-2)/5)-1][((pacman->getX()-2)/5)];
+    }
+  }
+
+  return map_block;
+
 }
 
 

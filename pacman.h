@@ -48,18 +48,20 @@ class Pacman: public Sprite, public EventTask {
   public:
     enum State {
       MOVING,
-      STOPPED
+      STOPPED,
+      TURNING
     };
     Pacman(int x, int y);
     void init();
     void move(Direction dir);
     void turn(Direction dir);    
+    int nextBlock();
     int getX();
     int getY();
     void update();
     const char* name();
     void execute(EventType event, Sprite* caller);
-    Direction _direction = Direction::RIGHT;
+    Direction _direction = Direction::LEFT;
     State _state = MOVING;
     const int SPRITE_SIZE = 5;
 
