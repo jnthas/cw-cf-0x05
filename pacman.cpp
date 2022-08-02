@@ -55,10 +55,10 @@ void Pacman::update() {
     _pacman_anim = !_pacman_anim; 
 
 
-  if (_state == INVENCIBLE && _iteration % 5 == 0) 
-    replaceColor(int(_pacman_anim), 0xFE40, 0xFFFF);
-  else 
-    replaceColor(int(_pacman_anim), 0xFFFF, 0xFE40);
+  // if (_state == INVENCIBLE && _iteration % 5 == 0) 
+  //   replaceColor(int(_pacman_anim), 0xFE40, 0xFFFF);
+  // else 
+  //   replaceColor(int(_pacman_anim), 0xFFFF, 0xFE40);
 
 
   Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], SPRITE_SIZE, SPRITE_SIZE);
@@ -93,13 +93,6 @@ void Pacman::flip() {
     }
   }
 
-}
-
-void Pacman::execute(EventType event, Sprite* caller) {
-  if (event == EventType::COLLISION) {
-    //Serial.println("MARIO - Collision detected");
-    _direction = DOWN;
-  }
 }
 
 void Pacman::replaceColor(byte sprite_index, uint16_t oldcolor, uint16_t newcolor) {

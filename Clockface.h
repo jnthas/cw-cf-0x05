@@ -39,6 +39,7 @@ class Clockface: public IClockface {
     // 000001100000
     // 011011110110
     // 300000000003
+    // 59 food blocks
 
     // 0: empty space
     // 1: obstacle
@@ -47,7 +48,23 @@ class Clockface: public IClockface {
     // 8: clock space
     // 9: pacman
 
-    const byte _MAP[12][12] = {
+    const byte _MAP_CONST[12][12] = {
+      {3,0,0,0,0,0,9,0,0,0,0,3},
+      {0,1,1,0,1,1,1,1,0,1,1,0},
+      {0,0,0,0,0,1,1,0,0,0,0,0},
+      {1,0,1,1,1,1,1,1,1,1,0,1},
+      {1,0,1,8,8,8,8,8,8,1,0,1},
+      {2,0,1,8,8,8,8,8,8,1,0,2},
+      {2,0,1,8,8,8,8,8,8,1,0,2},
+      {1,0,1,8,8,8,8,8,8,1,0,1},
+      {1,0,1,1,1,1,1,1,1,1,0,1},
+      {0,0,0,0,0,1,1,0,0,0,0,0},
+      {0,1,1,0,1,1,1,1,0,1,1,0},
+      {3,0,0,0,0,0,0,0,0,0,0,3}
+    };
+
+    
+    byte _MAP[12][12] = {
       {3,0,0,0,0,0,9,0,0,0,0,3},
       {0,1,1,0,1,1,1,1,0,1,1,0},
       {0,0,0,0,0,1,1,0,0,0,0,0},
@@ -71,6 +88,7 @@ class Clockface: public IClockface {
     int nextBlock(Direction dir);
     int nextBlock();
     void turnRandom();
+    bool checkBlocks(int elem);
     
     
   public:
