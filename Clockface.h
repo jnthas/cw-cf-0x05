@@ -4,7 +4,7 @@
 
 
 #include "hour_font.h"
-
+#include "../cw-commons/picopixel.h"
 
 #include <Adafruit_GFX.h>
 #include <Tile.h>
@@ -21,62 +21,61 @@
 
 class Clockface: public IClockface {
   private:
+    const int MAP_SIZE = 12;
     Adafruit_GFX* _display;
     CWDateTime* _dateTime;
-    boolean pacmanState = true;
+    bool pacmanState = true;
+    bool show_seconds = true;
+
+    const char* _weekDayWords = "SUN\0MON\0TUE\0WED\0THU\0FRI\0SAT\0";
+    const char* _monthWords = "JAN\0FEB\0MAR\0APR\0MAY\0JUN\0JUL\0AUG\0SEP\0OCT\0NOV\0DEC\0";
+    char weekDayTemp[4]= "\0";
+    char monthTemp[4]= "\0";
 
 
 
-    // 390000000003
-    // 011011110110
-    // 000001100000
-    // 101111111101
-    // 101888888101
-    // 201888888102
-    // 201888888102
-    // 101888888101
-    // 101111111101
-    // 000001100000
-    // 011011110110
-    // 300000000003
-    // 59 food blocks
+    enum MapBlock {
+      EMPTY = 0,
+      FOOD = 1,
+      WALL = 2,
+      GATE = 3,
+      SUPER_FOOD = 4,
+      CLOCK = 5,
+      GHOST = 6,
+      PACMAN = 7,
+      OUT_OF_MAP = 99
+    };
 
-    // 0: empty space
-    // 1: obstacle
-    // 2: teleport
-    // 3: special food
-    // 8: clock space
-    // 9: pacman
 
     const byte _MAP_CONST[12][12] = {
-      {3,0,0,0,0,0,9,0,0,0,0,3},
-      {0,1,1,0,1,1,1,1,0,1,1,0},
-      {0,0,0,0,0,1,1,0,0,0,0,0},
-      {1,0,1,1,1,1,1,1,1,1,0,1},
-      {1,0,1,8,8,8,8,8,8,1,0,1},
-      {2,0,1,8,8,8,8,8,8,1,0,2},
-      {2,0,1,8,8,8,8,8,8,1,0,2},
-      {1,0,1,8,8,8,8,8,8,1,0,1},
-      {1,0,1,1,1,1,1,1,1,1,0,1},
-      {0,0,0,0,0,1,1,0,0,0,0,0},
-      {0,1,1,0,1,1,1,1,0,1,1,0},
-      {3,0,0,0,0,0,0,0,0,0,0,3}
+      {4,1,1,1,1,1,7,1,1,1,1,4},
+      {1,2,2,1,2,2,2,2,1,2,2,1},
+      {1,1,1,1,1,2,2,1,1,1,1,1},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {3,1,5,5,5,5,5,5,5,5,1,3},
+      {3,1,5,5,5,5,5,5,5,5,1,3},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {1,1,1,1,1,2,2,1,1,1,1,1},
+      {1,2,2,1,2,2,2,2,1,2,2,1},
+      {4,1,1,1,1,1,1,1,1,1,1,4}
     };
 
     
     byte _MAP[12][12] = {
-      {3,0,0,0,0,0,9,0,0,0,0,3},
-      {0,1,1,0,1,1,1,1,0,1,1,0},
-      {0,0,0,0,0,1,1,0,0,0,0,0},
-      {1,0,1,1,1,1,1,1,1,1,0,1},
-      {1,0,1,8,8,8,8,8,8,1,0,1},
-      {2,0,1,8,8,8,8,8,8,1,0,2},
-      {2,0,1,8,8,8,8,8,8,1,0,2},
-      {1,0,1,8,8,8,8,8,8,1,0,1},
-      {1,0,1,1,1,1,1,1,1,1,0,1},
-      {0,0,0,0,0,1,1,0,0,0,0,0},
-      {0,1,1,0,1,1,1,1,0,1,1,0},
-      {3,0,0,0,0,0,0,0,0,0,0,3}
+      {4,1,1,1,1,1,7,1,1,1,1,4},
+      {1,2,2,1,2,2,2,2,1,2,2,1},
+      {1,1,1,1,1,2,2,1,1,1,1,1},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {3,1,5,5,5,5,5,5,5,5,1,3},
+      {3,1,5,5,5,5,5,5,5,5,1,3},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {2,1,5,5,5,5,5,5,5,5,1,2},
+      {1,1,1,1,1,2,2,1,1,1,1,1},
+      {1,2,2,1,2,2,2,2,1,2,2,1},
+      {4,1,1,1,1,1,1,1,1,1,1,4}
     };
 
 
@@ -84,11 +83,21 @@ class Clockface: public IClockface {
     const byte MAP_MIN_POS = 0 + MAP_BORDER_SIZE;
     const byte MAP_MAX_POS = 64 - MAP_BORDER_SIZE;
 
+    // first elem is the size
+    const int PACMAN_MOVING_BLOCKS[4] = {3, MapBlock::EMPTY, MapBlock::FOOD, MapBlock::GATE};
+    const int PACMAN_BLOCKING_BLOCKS[4] = {3, MapBlock::OUT_OF_MAP, MapBlock::WALL, MapBlock::CLOCK};
+
     void drawMap();
-    int nextBlock(Direction dir);
-    int nextBlock();
+    Clockface::MapBlock nextBlock(Direction dir);
+    Clockface::MapBlock nextBlock();
     void turnRandom();
-    bool checkBlocks(int elem);
+    int countBlocks(Clockface::MapBlock elem);
+    bool contains(int v, const int* values);
+    void resetMap();
+    void directionDecision(MapBlock nextBlk, bool moving_axis_x);
+    void updateClock();
+    const char* weekDayName(int weekday);
+    const char* monthName(int month);
     
     
   public:

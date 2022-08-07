@@ -34,16 +34,17 @@ class Pacman: public Sprite, public EventTask {
 
     int _lastX;
     int _lastY;
+    long current_color = 0xFE40;
 
     const unsigned short* _sprite;
-    unsigned long lastMillis = 0;
+    unsigned long invencibleTimeout = 0;
     
 
     bool _pacman_anim = true;
 
     void flip();
     void rotate();
-    void replaceColor(byte sprite_index, uint16_t oldcolor, uint16_t newcolor);
+    void changePacmanColor(uint16_t newcolor);
 
     
   public:
@@ -56,7 +57,8 @@ class Pacman: public Sprite, public EventTask {
     Pacman(int x, int y);
     void init();
     void move(Direction dir);
-    void turn(Direction dir);    
+    void turn(Direction dir);
+    void setState(State state);
     int nextBlock();
     int getX();
     int getY();
