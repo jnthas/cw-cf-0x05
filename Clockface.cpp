@@ -108,7 +108,7 @@ void Clockface::updateClock() {
     Locator::getDisplay()->print(monthName(this->_dateTime->getMonth()));
     Locator::getDisplay()->print(" ");
     Locator::getDisplay()->print(this->_dateTime->getDay());
-    Locator::getDisplay()->print("  ");
+    Locator::getDisplay()->print(" ");
     Locator::getDisplay()->print(weekDayName(this->_dateTime->getWeekday()));
     
     Locator::getDisplay()->setFont(&hourFont);
