@@ -87,7 +87,7 @@ void Clockface::update()
 
 
 const char* Clockface::weekDayName(int weekday) {
-  strncpy(weekDayTemp, _weekDayWords + (weekday*4), 4);
+  strncpy(weekDayTemp, _weekDayWords + (weekday*3), 3);
   return weekDayTemp;
 }
 

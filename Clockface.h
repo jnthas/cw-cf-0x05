@@ -27,7 +27,7 @@ class Clockface: public IClockface {
     bool pacmanState = true;
     bool show_seconds = true;
 
-    const char* _weekDayWords = "SUN\0MON\0TUE\0WED\0THU\0FRI\0SAT\0";
+    const char* _weekDayWords = "SU\0MO\0TU\0WE\0TH\0FR\0SA\0";
     const char* _monthWords = "JAN\0FEB\0MAR\0APR\0MAY\0JUN\0JUL\0AUG\0SEP\0OCT\0NOV\0DEC\0";
     char weekDayTemp[4]= "\0";
     char monthTemp[4]= "\0";
