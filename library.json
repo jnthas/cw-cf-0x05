@@ -1,0 +1,12 @@
+{
+    "name": "cw-cf-0x05",
+    "version": "1.0.0",
+    "description": "Clockwise Pacman Clockface",
+    "frameworks": [
+        "arduino",
+        "espidf"
+    ],
+    "platforms": [
+        "espressif32"
+    ]
+}
