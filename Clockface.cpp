@@ -1,6 +1,6 @@
 #include "Clockface.h"
 
-
+const int Clockface::MAP_SIZE; // Definition for static member
 unsigned long lastMillis = 0;
 unsigned long lastMillisTime = 0;
 unsigned long lastMillisSec = 0;
@@ -49,37 +49,50 @@ void Clockface::update()
 
 
   // Pacman
-  if (millis() - lastMillis >= 75) {
-    
-    bool fullBlock = // X axis
+  if (millis() - lastMillis >= 75) { // Pacman update interval
+
+    bool fullBlock = // Check if Pacman is aligned with the grid center
+                     // X axis
                      ((pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT) && (pacman->getX()-2) % 5 == 0) ||
                      // Y axis
                      ((pacman->_direction == Direction::UP || pacman->_direction == Direction::DOWN) && (pacman->getY()-2) % 5 == 0);
 
-    
-    if (fullBlock) {
-      
-      MapBlock nextBlk = nextBlock();
 
-      //change block to empty where pacman passes
-      _MAP[(pacman->getY()-2)/5][(pacman->getX()-2)/5] = MapBlock::EMPTY;
+    if (fullBlock) { // Actions to take when Pacman reaches the center of a map block
+      // Get coordinates of the block Pacman just fully entered
+      int currentMapR = (pacman->getY() - 2) / 5;
+      int currentMapC = (pacman->getX() - 2) / 5;
 
-      directionDecision(nextBlk, (pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT));
+      // Check the content of the block *before* clearing it
+      MapBlock currentBlockContent = static_cast<MapBlock>(_MAP[currentMapR][currentMapC]);
 
-      if (nextBlk == MapBlock::SUPER_FOOD) {
+      // Now, change the block to empty (eat the food/superfood)
+      _MAP[currentMapR][currentMapC] = MapBlock::EMPTY;
+
+      // Check if Pacman just ate superfood
+      if (currentBlockContent == MapBlock::SUPER_FOOD) {
         pacman->setState(Pacman::State::INVENCIBLE);
       }
 
-      if (countBlocks(MapBlock::FOOD) == 0) {
-        resetMap();
+      // Decide the next direction using BFS
+      // The nextBlk parameter isn't strictly used by the BFS logic itself but kept for compatibility.
+      MapBlock nextBlk = nextBlock(); // Determine block in current direction (used in fallback logic)
+      directionDecision(nextBlk, (pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT));
+
+
+      // Check if all food (regular and super) is gone to reset map
+      if (countBlocks(MapBlock::FOOD) == 0 && countBlocks(MapBlock::SUPER_FOOD) == 0) {
+         resetMap();
       }
-    }
+    } // end if(fullBlock)
 
-
+    // Update Pacman's position/animation regardless of being on a full block
     pacman->update();
 
+    // Reset the timer for the next Pacman update cycle
     lastMillis = millis();
-  }
+
+  } // end if (millis() - lastMillis >= 75)
 
   
   
@@ -87,7 +100,7 @@ void Clockface::update()
 
 
 const char* Clockface::weekDayName(int weekday) {
-  strncpy(weekDayTemp, _weekDayWords + (weekday*3), 3);
+  strncpy(weekDayTemp, _weekDayWords + (weekday*4), 4);
   return weekDayTemp;
 }
 
@@ -121,23 +134,136 @@ void Clockface::updateClock() {
     Locator::getDisplay()->print(this->_dateTime->getMinute("00"));
 }
 
+// Helper function to check if a cell is within bounds and movable
+bool Clockface::isValid(int r, int c) {
+    // Check bounds
+    if (r < 0 || r >= MAP_SIZE || c < 0 || c >= MAP_SIZE) {
+        return false;
+    }
+    // Check if the block type is movable
+    MapBlock block = static_cast<MapBlock>(_MAP[r][c]);
+    // Allow moving onto EMPTY, FOOD, GATE (via contains) OR SUPER_FOOD
+    return contains(block, PACMAN_MOVING_BLOCKS) || block == MapBlock::SUPER_FOOD;
+}
+
+// Helper function to check if a cell contains a target (food or superfood)
+bool Clockface::isTarget(int r, int c) {
+    // Check bounds (although isValid should handle this)
+    if (r < 0 || r >= MAP_SIZE || c < 0 || c >= MAP_SIZE) {
+        return false;
+    }
+    MapBlock block = static_cast<MapBlock>(_MAP[r][c]);
+    return block == MapBlock::FOOD || block == MapBlock::SUPER_FOOD;
+}
+
+
+// Reconstructs the path to find the immediate next move
+void Clockface::reconstructPath(Point start, Point end, Direction& nextMove) {
+    Point current = end;
+    Point prev = parent[current.x][current.y];
+
+    // Trace back until we find the step immediately after the start
+    while (!(prev.x == start.x && prev.y == start.y)) {
+        current = prev;
+        prev = parent[current.x][current.y];
+         // Safety break in case something goes wrong
+        if (current.x == -1 || current.y == -1) return;
+    }
+
+    // Determine direction from start to 'current' (the next step)
+    if (current.x > start.x) nextMove = Direction::DOWN;
+    else if (current.x < start.x) nextMove = Direction::UP;
+    else if (current.y > start.y) nextMove = Direction::RIGHT;
+    else if (current.y < start.y) nextMove = Direction::LEFT;
+}
+
+
+// Finds the shortest path using BFS and determines the next move
+bool Clockface::findShortestPath(int startR, int startC, Direction& nextMove) {
+    // Initialize BFS structures
+    queueFront = 0;
+    queueRear = -1;
+    for (int i = 0; i < MAP_SIZE; ++i) {
+        for (int j = 0; j < MAP_SIZE; ++j) {
+            visited[i][j] = false;
+            parent[i][j] = {-1, -1}; // Initialize parent pointers
+        }
+    }
+
+    // Starting point
+    Point startPoint = {startR, startC};
+    visited[startR][startC] = true;
+    queue[++queueRear] = startPoint;
+
+    // Possible moves (row and column offsets)
+    int dRow[] = {-1, 1, 0, 0}; // Up, Down
+    int dCol[] = {0, 0, -1, 1}; // Left, Right
+
+    while (queueFront <= queueRear) {
+        Point current = queue[queueFront++];
+
+        // Check if the current cell is a target
+        if (isTarget(current.x, current.y)) {
+            reconstructPath(startPoint, current, nextMove);
+            return true; // Path found
+        }
+
+        // Explore neighbors
+        for (int i = 0; i < 4; ++i) {
+            int nextR = current.x + dRow[i];
+            int nextC = current.y + dCol[i];
+
+            if (isValid(nextR, nextC) && !visited[nextR][nextC]) {
+                visited[nextR][nextC] = true;
+                parent[nextR][nextC] = current; // Record parent
+                queue[++queueRear] = {nextR, nextC};
+
+                 // Check queue bounds (simple circular queue might be better)
+                if (queueRear >= MAX_QUEUE_SIZE -1) {
+                    Serial.println("BFS Queue Overflow!");
+                    return false; // Prevent overflow
+                }
+            }
+        }
+    }
+
+    return false; // No path found
+}
+
+
+// Modified direction decision logic
 void Clockface::directionDecision(MapBlock nextBlk, bool moving_axis_x) {
 
-  // Serial.print("Next Block: ");
-  // Serial.println(nextBlk);
+    int currentMapR = (pacman->getY() - 2) / 5;
+    int currentMapC = (pacman->getX() - 2) / 5;
+    Direction nextMove = pacman->_direction; // Default to current direction
 
-  if (contains(nextBlk, PACMAN_BLOCKING_BLOCKS)) {
-    turnRandom();
-  } else if (moving_axis_x && contains(nextBlock(Direction::DOWN), PACMAN_MOVING_BLOCKS) && random(100) % 2 == 0) {
-    pacman->turn(Direction::DOWN);
-  } else if (moving_axis_x && contains(nextBlock(Direction::UP), PACMAN_MOVING_BLOCKS) && random(100) % 2 == 0) {
-    pacman->turn(Direction::UP);
-  } else if (!moving_axis_x && contains(nextBlock(Direction::LEFT), PACMAN_MOVING_BLOCKS) && random(100) % 2 == 0) {
-    pacman->turn(Direction::LEFT);
-  } else if (!moving_axis_x && contains(nextBlock(Direction::RIGHT), PACMAN_MOVING_BLOCKS) && random(100) % 2 == 0) {
-    pacman->turn(Direction::RIGHT);
-  }
+    if (findShortestPath(currentMapR, currentMapC, nextMove)) {
+        // Path found, turn Pacman
+        if (nextMove != pacman->_direction) {
+             pacman->turn(nextMove);
+        }
+        // If the next move is the current direction, just continue straight.
+        // No explicit action needed here as Pacman continues in its current direction by default.
 
+    } else {
+        // No path found (e.g., trapped or no food left)
+        // Fallback to random turning if the immediate next block is invalid
+         if (!contains(nextBlock(), PACMAN_MOVING_BLOCKS)) {
+            turnRandom();
+         }
+         // Otherwise, continue straight if possible, or turn randomly if blocked.
+         // The original random logic might still be useful as a fallback.
+         // For simplicity now, if blocked, turn random. If not blocked, continue.
+         // If the next block in the current direction is a wall, turn randomly.
+         MapBlock immediateNext = nextBlock();
+         if (contains(immediateNext, PACMAN_BLOCKING_BLOCKS)) {
+             turnRandom();
+         }
+         // If the pathfinding failed but the next block is movable,
+         // let Pacman continue straight. This might happen if pathfinding
+         // fails due to queue overflow or other unexpected issues.
+    }
 }
 
 
