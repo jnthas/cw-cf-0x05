@@ -1,8 +1,6 @@
 #include "pacman.h"
 
-Pacman::Pacman(int x, int y) {
-  _x = x;
-  _y = y;
+Pacman::Pacman(int x, int y) : Entity(x, y) {
 }
 
 void Pacman::turn(Direction dir) {
@@ -27,53 +25,42 @@ void Pacman::turn(Direction dir) {
 }
 
 void Pacman::move(Direction dir) {
-  
-  if (dir == Direction::RIGHT) {
-    _x += 1;
-  } else if (dir == Direction::LEFT) {
-    _x -= 1;
-  } else if (dir == Direction::DOWN) {
-    _y += 1;
-  } else if (dir == Direction::UP) {
-    _y -= 1;
-  }
-
+  moveInDirection(dir);
 }
 
 
 void Pacman::init() {
   //Locator::getEventBus()->subscribe(this);
-  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], SPRITE_SIZE, SPRITE_SIZE);
+  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_anim)], SPRITE_SIZE, SPRITE_SIZE);
 }
 
-void Pacman::update() { 
-  
+void Pacman::update() {
+
   if (_state == MOVING || _state == INVENCIBLE) {
     Locator::getDisplay()->fillRect(_x,_y, SPRITE_SIZE, SPRITE_SIZE, 0);
     this->move(_direction);
   }
 
-  if (_iteration % 3 == 0)
-    _pacman_anim = !_pacman_anim; 
+  updateAnimation(3);
 
 
   if (_state == INVENCIBLE) {
-    
+
     if (_iteration % 2 == 0) {
       current_color = random(LONG_MAX);
     } else {
       current_color = 0xFE40;
     }
-    
-    if ((millis() - invencibleTimeout) >= 7000) {
+
+    if ((millis() - invencibleTimeout) >= INVINCIBILITY_DURATION_MS) {
       _state = MOVING;
       current_color = 0xFE40;
     }
 
     changePacmanColor(current_color);
   }
-  
-  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_pacman_anim)], SPRITE_SIZE, SPRITE_SIZE);
+
+  Locator::getDisplay()->drawRGBBitmap(_x, _y, _PACMAN[int(_anim)], SPRITE_SIZE, SPRITE_SIZE);
 
   _iteration++;
 }
@@ -125,7 +112,7 @@ void Pacman::execute(EventType event, Sprite* caller) {
 
 void Pacman::changePacmanColor(uint16_t newcolor) {
   for (int i=0; i < SPRITE_SIZE*SPRITE_SIZE; i++) {
-    if (_PACMAN[0][i] != 0x0000) 
+    if (_PACMAN[0][i] != 0x0000)
       _PACMAN[0][i] = newcolor;
     if (_PACMAN[1][i] != 0x0000)
       _PACMAN[1][i] = newcolor;
@@ -133,13 +120,13 @@ void Pacman::changePacmanColor(uint16_t newcolor) {
 
 }
 
-int Pacman::getX() {
-  return this->_x;
-}
-int Pacman::getY() {
-  return this->_y;
-}
-
 const char* Pacman::name() {
   return "PACMAN";
+}
+
+void Pacman::resetToStart() {
+  resetToStartPosition();
+  _state = State::MOVING;
+  current_color = 0xFE40;
+  turn(Direction::RIGHT);
 }

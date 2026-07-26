@@ -1,22 +1,39 @@
 #include "Clockface.h"
 
 const int Clockface::MAP_SIZE; // Definition for static member
-unsigned long lastMillis = 0;
-unsigned long lastMillisTime = 0;
-unsigned long lastMillisSec = 0;
 
-
-Pacman *pacman;
 
 Clockface::Clockface(Adafruit_GFX* display) {
   _display = display;
   Locator::provide(display);
+  for (int i = 0; i < MAX_GHOSTS; i++) {
+    ghosts[i] = nullptr;
+    _ghostActive[i] = true;
+    _ghostRespawnAt[i] = 0;
+  }
+}
+
+Clockface::~Clockface() {
+  if (pacman != nullptr) {
+    delete pacman;
+    pacman = nullptr;
+  }
+  for (int i = 0; i < MAX_GHOSTS; i++) {
+    if (ghosts[i] != nullptr) {
+      delete ghosts[i];
+      ghosts[i] = nullptr;
+    }
+  }
+  _ghostCount = 0;
 }
 
 void Clockface::setup(CWDateTime *dateTime) {
   this->_dateTime = dateTime;
   Locator::getDisplay()->setFont(&hourFont);
   randomSeed(dateTime->getMilliseconds() + millis());
+  lastMillis = millis();
+  lastMillisTime = millis();
+  lastMillisSec = millis();
   drawMap();
   updateClock();
 }
@@ -24,9 +41,9 @@ void Clockface::setup(CWDateTime *dateTime) {
 void Clockface::update()
 {
 
-  // Seconds blink  
+  // Seconds blink
   if ((millis() - lastMillisSec) >= 1000) {
-    
+
     if (show_seconds) {
       Locator::getDisplay()->fillRect(31, 24, 2, 2, 0xFE40);
       Locator::getDisplay()->fillRect(31, 29, 2, 2, 0xFE40);
@@ -43,59 +60,354 @@ void Clockface::update()
   if (millis() - lastMillisTime >= 60000) {
 
     updateClock();
-    
+
     lastMillisTime = millis();
   }
 
 
-  // Pacman
-  if (millis() - lastMillis >= 75) { // Pacman update interval
+  // Pacman & Ghost update interval (synchronized)
+  if (millis() - lastMillis >= 75) {
+    if (pacman != nullptr && _ghostCount > 0) {
 
-    bool fullBlock = // Check if Pacman is aligned with the grid center
-                     // X axis
-                     ((pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT) && (pacman->getX()-2) % 5 == 0) ||
-                     // Y axis
-                     ((pacman->_direction == Direction::UP || pacman->_direction == Direction::DOWN) && (pacman->getY()-2) % 5 == 0);
+      // 1. Pacman movement decision
+      bool fullBlock = isAtGridJunction(pacman->getX(), pacman->getY());
 
+      if (fullBlock) {
+        int currentMapR = pixelToGrid(pacman->getY());
+        int currentMapC = pixelToGrid(pacman->getX());
 
-    if (fullBlock) { // Actions to take when Pacman reaches the center of a map block
-      // Get coordinates of the block Pacman just fully entered
-      int currentMapR = (pacman->getY() - 2) / 5;
-      int currentMapC = (pacman->getX() - 2) / 5;
+        // Eat food on current cell (invalidate cache — task 3.4)
+        MapBlock currentBlockContent = static_cast<MapBlock>(_MAP[currentMapR][currentMapC]);
+        _MAP[currentMapR][currentMapC] = MapBlock::EMPTY;
 
-      // Check the content of the block *before* clearing it
-      MapBlock currentBlockContent = static_cast<MapBlock>(_MAP[currentMapR][currentMapC]);
+        bool ateAnyFood = (currentBlockContent == MapBlock::FOOD || currentBlockContent == MapBlock::SUPER_FOOD);
+        if (ateAnyFood) {
+          _pacmanPlan.active = false;
+        }
 
-      // Now, change the block to empty (eat the food/superfood)
-      _MAP[currentMapR][currentMapC] = MapBlock::EMPTY;
+        if (currentBlockContent == MapBlock::SUPER_FOOD) {
+          pacman->setState(Pacman::State::INVENCIBLE);
+        }
 
-      // Check if Pacman just ate superfood
-      if (currentBlockContent == MapBlock::SUPER_FOOD) {
-        pacman->setState(Pacman::State::INVENCIBLE);
+        // 3.5: Apply deferred cache invalidation at junction
+        if (_pendingCacheInvalidation) {
+          _pacmanPlan.active = false;
+          _pendingCacheInvalidation = false;
+        }
+
+        // 3.4: Detect Pacman state change → invalidate cache
+        if (pacman->_state != _lastPacmanState) {
+          _pacmanPlan.active = false;
+          _lastPacmanState = pacman->_state;
+        }
+
+        // 3.4: Detect ghost boundary crossing (enters/leaves ≤4 range) → invalidate cache
+        int ghostsInRange = 0;
+        for (int gi = 0; gi < _ghostCount; gi++) {
+          int dist = manhattanToGhost(currentMapR, currentMapC, gi);
+          if (dist <= 4) {
+            ghostsInRange++;
+          }
+        }
+        if (ghostsInRange != _lastGhostsInRange) {
+          _pacmanPlan.active = false;
+          _lastGhostsInRange = ghostsInRange;
+        }
+
+        // If normal food is immediately adjacent, drop any cached route and
+        // re-evaluate so Pacman does not drift past a nearby pellet.
+        if (_pacmanPlan.active && hasAdjacentNormalFood(currentMapR, currentMapC)) {
+          _pacmanPlan.active = false;
+        }
+
+        // 3.3: Use cached plan if active — bypass tier evaluation,
+        // but re-validate the cached direction at the current position
+        // (the cell we cached for may be safe while the current cell is
+        //  at a map boundary, e.g. RIGHT from c=11 → out of bounds).
+        if (_pacmanPlan.active) {
+          if (_pacmanPlan.nextDir != pacman->_direction) {
+            int nextR = currentMapR + DIR_OFFSETS[static_cast<int>(_pacmanPlan.nextDir)].dRow;
+            int nextC = currentMapC + DIR_OFFSETS[static_cast<int>(_pacmanPlan.nextDir)].dCol;
+            if (isValid(nextR, nextC)) {
+              if (canMove(pacman->getX(), pacman->getY(), _pacmanPlan.nextDir)) {
+                pacman->turn(_pacmanPlan.nextDir);
+              } else {
+                _pacmanPlan.active = false;
+              }
+            } else {
+              _pacmanPlan.active = false;
+            }
+          } else {
+            // nextDir == currentDir: still re-validate at grid & pixel level.
+            // Without this, a plan that points into a wall (because Pacman
+            // arrived at a wall-adjacent junction) would not be caught until
+            // the next wall-guard tick — one pixel after entering the wall.
+            int nextR = currentMapR + DIR_OFFSETS[static_cast<int>(pacman->_direction)].dRow;
+            int nextC = currentMapC + DIR_OFFSETS[static_cast<int>(pacman->_direction)].dCol;
+            if (!isValid(nextR, nextC) ||
+                !canMove(pacman->getX(), pacman->getY(), pacman->_direction)) {
+              _pacmanPlan.active = false;
+            }
+          }
+        }
+        if (!_pacmanPlan.active) {
+          // Three-tier Pacman decision logic (task 2.3)
+          if (pacman->_state == Pacman::State::INVENCIBLE) {
+            // Invincible: find and target nearest ghost
+            int ghostR = 0, ghostC = 0;
+            int nearestGhostIdx = nearestGhost(currentMapR, currentMapC, ghostR, ghostC);
+            if (nearestGhostIdx >= 0) {
+              Direction nextMove = pacman->_direction;
+              bool pathToGhost = findPathTo(currentMapR, currentMapC, ghostR, ghostC, nextMove);
+              if (pathToGhost && canMove(pacman->getX(), pacman->getY(), nextMove)) {
+                if (nextMove != pacman->_direction) {
+                  pacman->turn(nextMove);
+                }
+              } else {
+                MapBlock nextBlk = nextBlock();
+                directionDecision(nextBlk, (pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT));
+              }
+            }
+          } else {
+            // Determine tier using effective distance (Task 4.2)
+            int ghostR = 0, ghostC = 0;
+            int nearestGhostIdx = nearestGhost(currentMapR, currentMapC, ghostR, ghostC);
+            int nearestDist = (nearestGhostIdx >= 0) ? abs(currentMapR - ghostR) + abs(currentMapC - ghostC) : 999;
+
+            bool tier1 = false;
+            bool tier2 = false;
+            if (nearestGhostIdx >= 0) {
+              for (int gi = 0; gi < _ghostCount; gi++) {
+                int gr = pixelToGrid(ghosts[gi]->getY());
+                int gc = pixelToGrid(ghosts[gi]->getX());
+                int rawDist = abs(currentMapR - gr) + abs(currentMapC - gc);
+                int dirDot = ghostDirectionDotProduct(ghosts[gi]->_direction, currentMapR - gr, currentMapC - gc);
+                int effectiveDist = rawDist - (dirDot > 0 ? 1 : 0) - (rawDist <= 2 ? 1 : 0);
+                if (effectiveDist <= 3) tier1 = true;
+                if (!tier1 && rawDist <= 4) tier2 = true;
+              }
+            }
+
+            // TIER 1: Any ghost with effective distance ≤ 4 → multi-ghost flee (immediate danger)
+            if (tier1) {
+              // Task 5.2: Check escape plan cache
+              bool useCachedEscape = false;
+              Direction fleeDir = pacman->_direction;
+
+              if (_pacmanPlan.escapePlanJunctionsLeft > 0) {
+                // Check if any ghost moved ≥1 tile toward Pacman since cached
+                bool ghostsChanged = false;
+                for (int gi = 0; gi < _ghostCount && !ghostsChanged; gi++) {
+                  int gr = pixelToGrid(ghosts[gi]->getY());
+                  int gc = pixelToGrid(ghosts[gi]->getX());
+                  int cachedR = _pacmanPlan.escapeGhostPositions[gi * 2];
+                  int cachedC = _pacmanPlan.escapeGhostPositions[gi * 2 + 1];
+                  if (cachedR >= 0) {
+                    int oldDist = abs(currentMapR - cachedR) + abs(currentMapC - cachedC);
+                    int newDist = abs(currentMapR - gr) + abs(currentMapC - gc);
+                    if (newDist < oldDist) {
+                      ghostsChanged = true;
+                    }
+                  }
+                }
+                if (!ghostsChanged) {
+                  fleeDir = _pacmanPlan.escapeDir;
+                  useCachedEscape = true;
+                  _pacmanPlan.escapePlanJunctionsLeft--; // Task 5.3: Decrement junction counter
+                } else {
+                  _pacmanPlan.escapePlanJunctionsLeft = 0; // Task 5.3: Invalidate on ghost approach
+                }
+              }
+
+              if (!useCachedEscape) {
+                // Task 1.3: Allow U-turn in Tier 1 flee
+                fleeDir = fleeDirectionMulti(currentMapR, currentMapC, pacman->_direction, /*allowUTurn=*/true);
+              }
+
+              fleeDir = preferFoodWhileFleeing(currentMapR, currentMapC, fleeDir, /*safetyMargin=*/1);
+
+              int fleeNextR = currentMapR + DIR_OFFSETS[static_cast<int>(fleeDir)].dRow;
+              int fleeNextC = currentMapC + DIR_OFFSETS[static_cast<int>(fleeDir)].dCol;
+              if (isValid(fleeNextR, fleeNextC) && canMove(pacman->getX(), pacman->getY(), fleeDir)) {
+                if (fleeDir != pacman->_direction) {
+                  pacman->turn(fleeDir);
+                }
+                // Task 5.1: Cache freshly computed escape plan
+                if (!useCachedEscape) {
+                  _pacmanPlan.escapeDir = fleeDir;
+                  _pacmanPlan.escapePlanCachedAt = millis();
+                  for (int gi = 0; gi < _ghostCount; gi++) {
+                    _pacmanPlan.escapeGhostPositions[gi * 2] = pixelToGrid(ghosts[gi]->getY());
+                    _pacmanPlan.escapeGhostPositions[gi * 2 + 1] = pixelToGrid(ghosts[gi]->getX());
+                  }
+                  _pacmanPlan.escapePlanJunctionsLeft = 3;
+                }
+              } else {
+                // Task 2.2: Flee direction blocked — use safestDirection() fallback
+                Direction safeDir = safestDirection(currentMapR, currentMapC);
+                safeDir = preferFoodWhileFleeing(currentMapR, currentMapC, safeDir, /*safetyMargin=*/1);
+                if (safeDir != pacman->_direction &&
+                    canMove(pacman->getX(), pacman->getY(), safeDir)) {
+                  pacman->turn(safeDir);
+                }
+                // Also cache the fallback direction as an escape plan
+                if (!useCachedEscape) {
+                  _pacmanPlan.escapeDir = safeDir;
+                  _pacmanPlan.escapePlanCachedAt = millis();
+                  for (int gi = 0; gi < _ghostCount; gi++) {
+                    _pacmanPlan.escapeGhostPositions[gi * 2] = pixelToGrid(ghosts[gi]->getY());
+                    _pacmanPlan.escapeGhostPositions[gi * 2 + 1] = pixelToGrid(ghosts[gi]->getX());
+                  }
+                  _pacmanPlan.escapePlanJunctionsLeft = 3;
+                }
+              }
+            }
+            // TIER 2: Ghost within 6 tiles but none ≤ 4 (effective) → super food check (medium danger)
+            else if (tier2) {
+              Direction superMove = pacman->_direction;
+              // Task 3.1: Increased BFS depth from 6 to 12
+              bool superFound = superFoodReachable(currentMapR, currentMapC, 12, superMove);
+              if (superFound && canMove(pacman->getX(), pacman->getY(), superMove)) {
+                if (superMove != pacman->_direction) {
+                  pacman->turn(superMove);
+                }
+              } else if (!superFound) {
+                Direction fleeDir = fleeDirectionMulti(currentMapR, currentMapC, pacman->_direction);
+                fleeDir = preferFoodWhileFleeing(currentMapR, currentMapC, fleeDir, /*safetyMargin=*/1);
+                int nextR = currentMapR + DIR_OFFSETS[static_cast<int>(fleeDir)].dRow;
+                int nextC = currentMapC + DIR_OFFSETS[static_cast<int>(fleeDir)].dCol;
+                if (isValid(nextR, nextC) && canMove(pacman->getX(), pacman->getY(), fleeDir)) {
+                  if (fleeDir != pacman->_direction) {
+                    pacman->turn(fleeDir);
+                  }
+                } else {
+                  // Task 2.3: Use safestDirection() in Tier 2 fallback
+                  Direction safeDir = safestDirection(currentMapR, currentMapC);
+                  if (safeDir != pacman->_direction &&
+                      canMove(pacman->getX(), pacman->getY(), safeDir)) {
+                    pacman->turn(safeDir);
+                  }
+                }
+              }
+            }
+            // TIER 3: No ghost within 6 tiles → safe, BFS to food (cache if found — task 3.2)
+            else {
+              Direction nextMove = pacman->_direction;
+              if (findShortestPath(currentMapR, currentMapC, nextMove) &&
+                  canMove(pacman->getX(), pacman->getY(), nextMove)) {
+                if (nextMove != pacman->_direction) {
+                  pacman->turn(nextMove);
+                }
+                // 3.2: Initialize cache on valid BFS + pixel-level validation
+                _pacmanPlan.active = true;
+                _pacmanPlan.nextDir = nextMove;
+                _pacmanPlan.targetR = currentMapR;
+                _pacmanPlan.targetC = currentMapC;
+                _pacmanPlan.cachedAt = millis();
+              } else {
+                MapBlock nextBlk = nextBlock();
+                directionDecision(nextBlk, (pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT));
+              }
+            }
+          }
+        }
+
+        if (countBlocks(MapBlock::FOOD) == 0 && countBlocks(MapBlock::SUPER_FOOD) == 0) {
+           resetMap();
+           lastMillis = millis();
+           return;
+        }
+      } else {
+        // Not at grid junction — check for deferred cache invalidation (task 3.5)
+        int currentR = pixelToGrid(pacman->getY());
+        int currentC = pixelToGrid(pacman->getX());
+
+        int nowGhostsInRange = 0;
+        for (int gi = 0; gi < _ghostCount; gi++) {
+          int dist = manhattanToGhost(currentR, currentC, gi);
+          if (dist <= 6) nowGhostsInRange++;
+        }
+        if (nowGhostsInRange != _lastGhostsInRange) {
+          _pendingCacheInvalidation = true;
+          _lastGhostsInRange = nowGhostsInRange;
+        }
+
+        if (pacman->_state != _lastPacmanState) {
+          _pendingCacheInvalidation = true;
+          _lastPacmanState = pacman->_state;
+        }
+
+        // Wall guard: block movement if any part of the sprite would overlap a wall
+        if (!canMove(pacman->getX(), pacman->getY(), pacman->_direction)) {
+          _pacmanPlan.active = false;
+          // Reverse direction to return to the last grid junction,
+          // where the AI (with pixel-level canMove validation) will
+          // choose a safe direction next tick.
+          pacman->turn(oppositeDirection(pacman->_direction));
+        }
       }
 
-      // Decide the next direction using BFS
-      // The nextBlk parameter isn't strictly used by the BFS logic itself but kept for compatibility.
-      MapBlock nextBlk = nextBlock(); // Determine block in current direction (used in fallback logic)
-      directionDecision(nextBlk, (pacman->_direction == Direction::LEFT || pacman->_direction == Direction::RIGHT));
-
-
-      // Check if all food (regular and super) is gone to reset map
-      if (countBlocks(MapBlock::FOOD) == 0 && countBlocks(MapBlock::SUPER_FOOD) == 0) {
-         resetMap();
+      // 2. Ghost respawn timer + movement decision for each active ghost
+      for (int gi = 0; gi < _ghostCount; gi++) {
+        if (!_ghostActive[gi] && _ghostRespawnAt[gi] != 0 && millis() >= _ghostRespawnAt[gi]) {
+          respawnGhost(ghosts[gi]);
+          _ghostActive[gi] = true;
+          _ghostRespawnAt[gi] = 0;
+        }
       }
-    } // end if(fullBlock)
 
-    // Update Pacman's position/animation regardless of being on a full block
-    pacman->update();
+      for (int gi = 0; gi < _ghostCount; gi++) {
+        if (!_ghostActive[gi]) {
+          continue;
+        }
+        Ghost* g = ghosts[gi];
+        bool ghostFullBlock = isAtGridJunction(g->getX(), g->getY());
+        if (ghostFullBlock) {
+          ghostDirectionDecision(g);
+        } else {
+          // Wall guard: block movement if any part of the sprite would overlap a wall
+          if (!canMove(g->getX(), g->getY(), g->_direction)) {
+            // Reverse direction to return to the last grid junction
+            g->turn(oppositeDirection(g->_direction));
+          }
+        }
+      }
 
-    // Reset the timer for the next Pacman update cycle
+      // 3. Pre-move collision checks
+      bool deathHappened = checkCollisions();
+
+      if (!deathHappened) {
+        int pacmanOldX = pacman->getX();
+        int pacmanOldY = pacman->getY();
+
+        int ghostOldX[MAX_GHOSTS], ghostOldY[MAX_GHOSTS];
+        for (int gi = 0; gi < _ghostCount; gi++) {
+          ghostOldX[gi] = ghosts[gi]->getX();
+          ghostOldY[gi] = ghosts[gi]->getY();
+        }
+
+        pacman->update();
+
+        unsigned long pacmanInvincibleTimeout = pacman->getInvincibleTimeout();
+        for (int gi = 0; gi < _ghostCount; gi++) {
+          if (!_ghostActive[gi]) {
+            continue;
+          }
+          ghosts[gi]->updateWithInvincibleTimeout(pacmanInvincibleTimeout);
+        }
+
+        redrawFoodOverlap(pacmanOldX, pacmanOldY, pacman->getX(), pacman->getY());
+
+        for (int gi = 0; gi < _ghostCount; gi++) {
+          redrawFoodOverlap(ghostOldX[gi], ghostOldY[gi], ghosts[gi]->getX(), ghosts[gi]->getY());
+        }
+
+        // Post-move collision checks (ignore return — death already handled pre-move)
+        checkCollisions();
+      }
+    }
     lastMillis = millis();
-
-  } // end if (millis() - lastMillis >= 75)
-
-  
-  
+  }
 }
 
 
@@ -107,6 +419,44 @@ const char* Clockface::weekDayName(int weekday) {
 const char* Clockface::monthName(int month) {
   strncpy(monthTemp, _monthWords + ((month-1)*4), 4);
   return monthTemp;
+}
+
+// Helper function to check collisions between Pacman and ghosts
+bool Clockface::checkCollisions() {
+  bool deathHappened = false;
+  for (int gi = 0; gi < _ghostCount; gi++) {
+    if (!_ghostActive[gi]) {
+      continue;
+    }
+    if (pacman->collidedWith(ghosts[gi])) {
+      if (pacman->_state == Pacman::State::INVENCIBLE) {
+        handleGhostEaten(ghosts[gi]);
+      } else {
+        handlePacmanDeath(ghosts[gi]);
+        deathHappened = true;
+        break;
+      }
+    }
+  }
+  return deathHappened;
+}
+
+// Helper function to get ghost grid position
+void Clockface::ghostGridPosition(int ghostIndex, int &gridR, int &gridC) {
+  if (ghostIndex >= 0 && ghostIndex < _ghostCount) {
+    gridR = pixelToGrid(ghosts[ghostIndex]->getY());
+    gridC = pixelToGrid(ghosts[ghostIndex]->getX());
+  } else {
+    gridR = 0;
+    gridC = 0;
+  }
+}
+
+// Helper function to calculate Manhattan distance to a ghost
+int Clockface::manhattanToGhost(int entityR, int entityC, int ghostIndex) {
+  int ghostR, ghostC;
+  ghostGridPosition(ghostIndex, ghostR, ghostC);
+  return abs(entityR - ghostR) + abs(entityC - ghostC);
 }
 
 
@@ -123,272 +473,49 @@ void Clockface::updateClock() {
     Locator::getDisplay()->print(this->_dateTime->getDay());
     Locator::getDisplay()->print(" ");
     Locator::getDisplay()->print(weekDayName(this->_dateTime->getWeekday()));
-    
+
     Locator::getDisplay()->setFont(&hourFont);
-    
+
     Locator::getDisplay()->setTextColor(0xFE40);
     Locator::getDisplay()->setCursor(15, 28);
-    
+
     Locator::getDisplay()->print(this->_dateTime->getHour("00"));
     Locator::getDisplay()->print(" ");
     Locator::getDisplay()->print(this->_dateTime->getMinute("00"));
-}
-
-// Helper function to check if a cell is within bounds and movable
-bool Clockface::isValid(int r, int c) {
-    // Check bounds
-    if (r < 0 || r >= MAP_SIZE || c < 0 || c >= MAP_SIZE) {
-        return false;
-    }
-    // Check if the block type is movable
-    MapBlock block = static_cast<MapBlock>(_MAP[r][c]);
-    // Allow moving onto EMPTY, FOOD, GATE (via contains) OR SUPER_FOOD
-    return contains(block, PACMAN_MOVING_BLOCKS) || block == MapBlock::SUPER_FOOD;
-}
-
-// Helper function to check if a cell contains a target (food or superfood)
-bool Clockface::isTarget(int r, int c) {
-    // Check bounds (although isValid should handle this)
-    if (r < 0 || r >= MAP_SIZE || c < 0 || c >= MAP_SIZE) {
-        return false;
-    }
-    MapBlock block = static_cast<MapBlock>(_MAP[r][c]);
-    return block == MapBlock::FOOD || block == MapBlock::SUPER_FOOD;
-}
-
-
-// Reconstructs the path to find the immediate next move
-void Clockface::reconstructPath(Point start, Point end, Direction& nextMove) {
-    Point current = end;
-    Point prev = parent[current.x][current.y];
-
-    // Trace back until we find the step immediately after the start
-    while (!(prev.x == start.x && prev.y == start.y)) {
-        current = prev;
-        prev = parent[current.x][current.y];
-         // Safety break in case something goes wrong
-        if (current.x == -1 || current.y == -1) return;
-    }
-
-    // Determine direction from start to 'current' (the next step)
-    if (current.x > start.x) nextMove = Direction::DOWN;
-    else if (current.x < start.x) nextMove = Direction::UP;
-    else if (current.y > start.y) nextMove = Direction::RIGHT;
-    else if (current.y < start.y) nextMove = Direction::LEFT;
-}
-
-
-// Finds the shortest path using BFS and determines the next move
-bool Clockface::findShortestPath(int startR, int startC, Direction& nextMove) {
-    // Initialize BFS structures
-    queueFront = 0;
-    queueRear = -1;
-    for (int i = 0; i < MAP_SIZE; ++i) {
-        for (int j = 0; j < MAP_SIZE; ++j) {
-            visited[i][j] = false;
-            parent[i][j] = {-1, -1}; // Initialize parent pointers
-        }
-    }
-
-    // Starting point
-    Point startPoint = {startR, startC};
-    visited[startR][startC] = true;
-    queue[++queueRear] = startPoint;
-
-    // Possible moves (row and column offsets)
-    int dRow[] = {-1, 1, 0, 0}; // Up, Down
-    int dCol[] = {0, 0, -1, 1}; // Left, Right
-
-    while (queueFront <= queueRear) {
-        Point current = queue[queueFront++];
-
-        // Check if the current cell is a target
-        if (isTarget(current.x, current.y)) {
-            reconstructPath(startPoint, current, nextMove);
-            return true; // Path found
-        }
-
-        // Explore neighbors
-        for (int i = 0; i < 4; ++i) {
-            int nextR = current.x + dRow[i];
-            int nextC = current.y + dCol[i];
-
-            if (isValid(nextR, nextC) && !visited[nextR][nextC]) {
-                visited[nextR][nextC] = true;
-                parent[nextR][nextC] = current; // Record parent
-                queue[++queueRear] = {nextR, nextC};
-
-                 // Check queue bounds (simple circular queue might be better)
-                if (queueRear >= MAX_QUEUE_SIZE -1) {
-                    Serial.println("BFS Queue Overflow!");
-                    return false; // Prevent overflow
-                }
-            }
-        }
-    }
-
-    return false; // No path found
 }
 
 
 // Modified direction decision logic
 void Clockface::directionDecision(MapBlock nextBlk, bool moving_axis_x) {
 
-    int currentMapR = (pacman->getY() - 2) / 5;
-    int currentMapC = (pacman->getX() - 2) / 5;
+    int currentMapR = pixelToGrid(pacman->getY());
+    int currentMapC = pixelToGrid(pacman->getX());
     Direction nextMove = pacman->_direction; // Default to current direction
 
-    if (findShortestPath(currentMapR, currentMapC, nextMove)) {
-        // Path found, turn Pacman
+    bool bfsOk = findShortestPath(currentMapR, currentMapC, nextMove);
+    bool pixelOk = bfsOk && canMove(pacman->getX(), pacman->getY(), nextMove);
+
+    if (pixelOk) {
+        // Path found and pixel-validated, turn Pacman if needed
         if (nextMove != pacman->_direction) {
-             pacman->turn(nextMove);
+            pacman->turn(nextMove);
         }
-        // If the next move is the current direction, just continue straight.
-        // No explicit action needed here as Pacman continues in its current direction by default.
-
     } else {
-        // No path found (e.g., trapped or no food left)
-        // Fallback to random turning if the immediate next block is invalid
-         if (!contains(nextBlock(), PACMAN_MOVING_BLOCKS)) {
+        // BFS direction is blocked or path not found. Try a reachable food direction
+        // from the neighboring cells before using the fallback.
+        if (chooseFoodDirectionFromNeighbors(currentMapR, currentMapC, nextMove)) {
+            if (nextMove != pacman->_direction) {
+                pacman->turn(nextMove);
+            }
+            return;
+        }
+
+        if (!contains(nextBlock(), PACMAN_MOVING_BLOCKS)) {
             turnRandom();
-         }
-         // Otherwise, continue straight if possible, or turn randomly if blocked.
-         // The original random logic might still be useful as a fallback.
-         // For simplicity now, if blocked, turn random. If not blocked, continue.
-         // If the next block in the current direction is a wall, turn randomly.
-         MapBlock immediateNext = nextBlock();
-         if (contains(immediateNext, PACMAN_BLOCKING_BLOCKS)) {
-             turnRandom();
-         }
-         // If the pathfinding failed but the next block is movable,
-         // let Pacman continue straight. This might happen if pathfinding
-         // fails due to queue overflow or other unexpected issues.
+        }
+        MapBlock immediateNext = nextBlock();
+        if (contains(immediateNext, PACMAN_BLOCKING_BLOCKS)) {
+            turnRandom();
+        }
     }
-}
-
-
-void Clockface::resetMap() {
-
-  memcpy( _MAP, _MAP_CONST, sizeof(_MAP_CONST) );
-  drawMap();
-  updateClock();
-}
-
-
-int Clockface::countBlocks(Clockface::MapBlock elem) {
-  int count = 0;
-  for (int i = 0; i<MAP_SIZE; i++) {
-    for (int j = 0; j<MAP_SIZE; j++) {
-      if (_MAP[i][j] == elem)
-        count++;
-    }
-  }
-
-  return count;
-}
-
-
-void Clockface::turnRandom() {
-  int dir = random(4);
-  //int dir = 3;
-  //pacman->_state = Pacman::State::TURNING;
-
-  do {
-    pacman->turn(static_cast<Direction>(dir));
-    dir = random(4);
-    //dir++;
-
-    
-  } while (!contains(nextBlock(), PACMAN_MOVING_BLOCKS));
-
-  Serial.print("New direction: ");
-  Serial.println(pacman->_direction);
-}
-
-
-Clockface::MapBlock Clockface::nextBlock() {
-  return nextBlock(pacman->_direction);
-}
-
-Clockface::MapBlock Clockface::nextBlock(Direction dir) {
-
-  Clockface::MapBlock map_block = Clockface::MapBlock::OUT_OF_MAP;
-
-  if (dir == Direction::RIGHT) {
-    if (pacman->getX()+pacman->SPRITE_SIZE < MAP_MAX_POS) {
-      map_block = static_cast<MapBlock>(_MAP[(pacman->getY()-2)/5][((pacman->getX()-2)/5)+1]);
-    }
-    
-  } else if (dir == Direction::DOWN) {
-    if (pacman->getY()+pacman->SPRITE_SIZE < MAP_MAX_POS) {
-      map_block = static_cast<MapBlock>(_MAP[((pacman->getY()-2)/5)+1][(pacman->getX()-2)/5]);
-    }
-  } else if (dir == Direction::LEFT) {
-
-    if ((pacman->getX()-2) > 0) {
-      map_block = static_cast<MapBlock>(_MAP[(pacman->getY()-2)/5][((pacman->getX()-2)/5)-1]);
-    }
-
-  } else if (dir == Direction::UP) {
-    if ((pacman->getY()-2) > 0) {
-      map_block = static_cast<MapBlock>(_MAP[((pacman->getY()-2)/5)-1][((pacman->getX()-2)/5)]);
-    }
-  }
-
-  return map_block;
-
-}
-
-bool Clockface::contains(int v, const int* values) {
-  
-  for (int i = 1; i<values[0]+1; i++) {
-    if (v == values[i])
-      return true;
-  }
-
-  return false;
-}
-
-void Clockface::drawMap() 
-{
-  //Locator::getDisplay()->drawRGBBitmap(0, 0, _PACMAN_MAP, 64, 64);
-  //Locator::getDisplay()->getPixel(0, 0);
-
-  Locator::getDisplay()->fillRect(0, 0, 64, 64, 0x0000);
-
-
-
-  uint16_t food_color = 0xB58C;
-  uint16_t wall_color = 0x0016;
-  uint16_t spcfood_color = 0xFBE0;
-
-
-
-  Locator::getDisplay()->drawRect(0,0,64,64,wall_color);
-  Locator::getDisplay()->drawRect(1,1,62,62,wall_color);
-
-
-  for (int i=0; i<MAP_SIZE; i++) {
-    for (int j=0; j<MAP_SIZE; j++) {
-      if (_MAP[j][i] == MapBlock::FOOD) {
-        Locator::getDisplay()->fillRect((i*5)+3,(j*5)+4,3,1,food_color);
-      } else if (_MAP[j][i] == MapBlock::WALL) {
-        Locator::getDisplay()->fillRect((i*5)+2,(j*5)+2,5,5,wall_color);
-      } else if (_MAP[j][i] == MapBlock::CLOCK) {
-        Locator::getDisplay()->fillRect((i*5)+2,(j*5)+2,5,5,wall_color);
-      } else if (_MAP[j][i] == MapBlock::GATE) {
-        //Locator::getDisplay()->fillRect((i*5)+((bool)i*2),(j*5)+2,7,5,0x0000);
-        Locator::getDisplay()->fillRect((i*5)+3,(j*5)+4,3,1,food_color);
-      } else if (_MAP[j][i] == MapBlock::SUPER_FOOD) {
-        Locator::getDisplay()->fillRect((i*5)+3,(j*5)+3,3,3,spcfood_color);
-      } else if (_MAP[j][i] == MapBlock::PACMAN) {
-        pacman = new Pacman((i*5)+2,(j*5)+2);
-
-        // Locator::getDisplay()->drawRGBBitmap((i*5)+2,(j*5)+2, _PACMAN_2, 5, 5);
-        // pacmanState = !pacmanState;
-      }
-    }
-  }
-
-  
 }
