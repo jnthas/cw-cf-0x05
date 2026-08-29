@@ -34,6 +34,7 @@ void Clockface::setup(CWDateTime *dateTime) {
   lastMillis = millis();
   lastMillisTime = millis();
   lastMillisSec = millis();
+  memcpy(_MAP, _MAP_CONST, sizeof(_MAP_CONST));
   drawMap();
   updateClock();
 }

@@ -28,23 +28,18 @@ struct Point {
 
 // Coordinate conversion utilities
 static constexpr int pixelToGrid(int p) {
-    // Floor division: C++ truncates toward zero, so (p-2)/5 for p<2
-    // gives 0 instead of -1.  Subtract 4 from negative dividends to
-    // make truncation equal floor for /5.
-    int val = p - 2;
-    return val >= 0 ? val / 5 : (val - 4) / 5;
+    // Floor division: C++ truncates toward zero.  Subtract 4 from
+    // negative dividends so truncation equals floor for /5.
+    return (p - 2) >= 0 ? (p - 2) / 5 : ((p - 2) - 4) / 5;
 }
 static constexpr int gridToPixel(int g) { return (g * 5) + 2; }
 
 // Direction utility
 constexpr Direction oppositeDirection(Direction dir) {
-    switch (dir) {
-        case Direction::UP: return Direction::DOWN;
-        case Direction::DOWN: return Direction::UP;
-        case Direction::LEFT: return Direction::RIGHT;
-        case Direction::RIGHT: return Direction::LEFT;
-    }
-    return Direction::RIGHT; // fallback
+    return (dir == Direction::UP) ? Direction::DOWN :
+           (dir == Direction::DOWN) ? Direction::UP :
+           (dir == Direction::LEFT) ? Direction::RIGHT :
+           Direction::RIGHT;
 }
 
 // Direction offset lookup — matches Direction enum order:
